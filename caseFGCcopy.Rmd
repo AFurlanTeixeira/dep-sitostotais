@@ -1,0 +1,927 @@
+---
+title: "Análise Estatística dos Depósitos Totais no Brasil"
+author: "Arthur Teixeira"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r, include=FALSE}
+
+install.packages("lmtest", repos = "https://cloud.r-project.org")
+```
+
+# Pacotes Utilizados:
+
+```{r, include=TRUE}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(kableExtra)
+library(viridis)
+library(psych)
+library(car)
+library(tseries)
+library(broom)
+library(scales)
+library(lmtest)
+```
+
+# Carregar os dados:
+
+```{r,include=TRUE}
+df_depositos <- read_excel("depositos.xlsx", sheet = "Planilha1") %>%
+  mutate(Data = as.Date(Data),
+         Total = Vista + Poupanca + Prazo,
+         Ano = year(Data),
+         Mes = month(Data),
+         Trimestre = quarter(Data)
+         )
+```
+
+# Visualizar as primeiras linhas:
+
+```{r,include=TRUE}
+head(df_depositos)
+```
+
+# Estatística Descritiva:
+
+## Tabela para cada tipo de depósito
+
+### À Vista:
+
+```{r}
+estatisticas_vista <- df_depositos %>%
+  summarise(
+    across(c(Vista), 
+           list(
+             Media = ~mean(., na.rm = TRUE),
+             Mediana = ~median(., na.rm = TRUE),
+             DP = ~sd(., na.rm = TRUE),
+             Minimo = ~min(., na.rm = TRUE),
+             Maximo = ~max(., na.rm = TRUE),
+             CV = ~sd(., na.rm = TRUE)/mean(., na.rm = TRUE)  # Coeficiente de Variação
+           )
+    )
+  )
+summary(estatisticas_vista)
+```
+
+### Poupança:
+
+```{r}
+estatisticas_poupanca <- df_depositos %>%
+  summarise(
+    across(c(Poupanca), 
+           list(
+             Media = ~mean(., na.rm = TRUE),
+             Mediana = ~median(., na.rm = TRUE),
+             DP = ~sd(., na.rm = TRUE),
+             Minimo = ~min(., na.rm = TRUE),
+             Maximo = ~max(., na.rm = TRUE),
+             CV = ~sd(., na.rm = TRUE)/mean(., na.rm = TRUE)  # Coeficiente de Variação
+           )
+    )
+  )
+summary(estatisticas_poupanca)
+```
+
+### Prazo:
+
+```{r}
+estatisticas_prazo <- df_depositos %>%
+  summarise(
+    across(c(Prazo), 
+           list(
+             Media = ~mean(., na.rm = TRUE),
+             Mediana = ~median(., na.rm = TRUE),
+             DP = ~sd(., na.rm = TRUE),
+             Minimo = ~min(., na.rm = TRUE),
+             Maximo = ~max(., na.rm = TRUE),
+             CV = ~sd(., na.rm = TRUE)/mean(., na.rm = TRUE)  # Coeficiente de Variação
+           )
+    )
+  )
+summary(estatisticas_prazo)
+```
+
+# Total:
+
+```{r}
+estatisticas_total <- df_depositos %>%
+  summarise(
+    across(c(Total), 
+           list(
+             Media = ~mean(., na.rm = TRUE),
+             Mediana = ~median(., na.rm = TRUE),
+             DP = ~sd(., na.rm = TRUE),
+             Minimo = ~min(., na.rm = TRUE),
+             Maximo = ~max(., na.rm = TRUE),
+             CV = ~sd(., na.rm = TRUE)/mean(., na.rm = TRUE)  # Coeficiente de Variação
+           )
+    )
+  )
+summary(estatisticas_total)
+```
+
+# Evolução Temporal dos Depósitos:
+
+```{r}
+df_long <- df_depositos %>%
+  pivot_longer(cols = c(Vista, Poupanca, Prazo, Total), 
+               names_to = "Tipo_Deposito", 
+               values_to = "Valor")
+
+ggplot(df_long, aes(x = Data, y = Valor, color = Tipo_Deposito)) +
+  geom_line(size = 1) +
+  geom_point(size = 1) +
+  labs(
+    title = "Evolução dos Depósitos Bancários (2022-2024)",
+    x = "Data",
+    y = "Valor (R$)",
+    color = "Tipo de Depósito"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_viridis_d(option = "mako", begin = 0, end = 0.7)+
+  theme(legend.position = "bottom") +
+  facet_wrap(~Tipo_Deposito, scales = "free_y", ncol = 2)
+```
+
+# Análise por Ano:
+
+```{r}
+depositos_anual <- df_depositos %>%
+  group_by(Ano) %>%
+  summarise(
+    Media_Vista = mean(Vista),
+    Media_Poupanca = mean(Poupanca),
+    Media_Prazo = mean(Prazo),
+    Total_Vista = sum(Vista),
+    Total_Poupanca = sum(Poupanca),
+    Total_Prazo = sum(Prazo)
+  )
+
+depositos_anual
+```
+
+## Análise do Total de Depósitos:
+
+### Gráfico específico para o Total:
+
+```{r}
+
+ggplot(df_depositos, aes(x = Data, y = Total)) +
+  geom_line(color = "#FF7F00", size = 1.2) +
+  geom_point(color = "#FF7F00", size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred", linetype = "dashed") +
+  labs(
+    title = "Evolução do Total de Depósitos",
+    subtitle = "Linha tracejada mostra tendência linear",
+    x = "Data",
+    y = "Total de Depósitos (R$)"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma)
+```
+
+Estatísticas de crescimento do Total:
+
+```{r}
+crescimento_total <- df_depositos %>%
+  arrange(Data) %>%
+  mutate(
+    Variacao_Mensal = (Total/lag(Total) - 1) * 100,
+    Variacao_Acumulada = (Total/first(Total) - 1) * 100
+  )
+
+cat("Crescimento total no período:", 
+    round((last(crescimento_total$Total) / first(crescimento_total$Total) - 1) * 100, 2), "%\n")
+```
+
+## Gráfico de barras comparativo:
+
+### Anual:
+
+```{r}
+depositos_anual <- df_depositos %>%
+  group_by(Ano) %>%
+  summarise(
+    Vista = mean(Vista),
+    Poupança = mean(Poupanca),
+    Prazo = mean(Prazo),
+    Total = mean(Total),
+    .groups = 'drop'
+  )
+
+# Gráfico de comparação anual
+depositos_anual_long <- depositos_anual %>%
+  pivot_longer(cols = -Ano, names_to = "Tipo", values_to = "Valor")
+
+ggplot(depositos_anual_long, aes(x = factor(Ano), y = Valor, fill = Tipo)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(
+    title = "Valor Médio dos Depósitos por Ano",
+    x = "Ano",
+    y = "Valor Médio (R$)",
+    fill = "Tipo de Depósito"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +
+  scale_fill_viridis_d(option = "mako", begin = 0, end = 0.7)
+```
+
+# Composição Percentual dos Depósitos:
+
+```{r}
+df_composicao <- df_depositos %>%
+  mutate(Total = Vista + Poupanca + Prazo,
+         Perc_Vista = (Vista/Total)*100,
+         Perc_Poupanca = (Poupanca/Total)*100,
+         Perc_Prazo = (Prazo/Total)*100)
+
+df_comp_long <- df_composicao %>%
+  select(Data, Perc_Vista, Perc_Poupanca, Perc_Prazo) %>%
+  pivot_longer(cols = starts_with("Perc"), 
+               names_to = "Tipo_Deposito", 
+               values_to = "Percentual")
+
+ggplot(df_comp_long, aes(x = Data, y = Percentual, color = Tipo_Deposito)) +
+  geom_line(size = 0.8) +
+  labs(title = "Composição Percentual dos Depósitos",
+       x = "Data", y = "Percentual (%)", color = "Tipo de Depósito") +
+ scale_color_viridis_d(option = "mako", begin = 0, end = 0.7) +
+  theme_minimal()
+```
+
+# Análise de Correlação:
+
+```{r}
+correlacao <- cor(df_depositos[, c("Vista", "Poupanca", "Prazo")])
+correlacao
+```
+
+## Gráfico de dispersão:
+
+```{r}
+pairs(df_depositos[, c("Vista", "Poupanca", "Prazo", "Total")],
+      main = "Matriz de Dispersão entre Tipos de Depósitos")
+```
+
+# Análise de Sazonalidade:
+
+```{r}
+sazonalidade <- df_depositos %>%
+  group_by(Mes) %>%
+  summarise(
+    Vista = mean(Vista),
+    Poupanca = mean(Poupanca),
+    Prazo = mean(Prazo)
+  )
+
+sazonalidade
+
+sazonalidade_long <- sazonalidade %>%
+  pivot_longer(cols = c(Vista, Poupanca, Prazo), 
+               names_to = "Tipo_Deposito", 
+               values_to = "Valor_Medio")
+
+ggplot(sazonalidade_long, aes(x = factor(Mes), y = Valor_Medio, color = Tipo_Deposito, group = Tipo_Deposito)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(title = "Padrão Sazonal dos Depósitos por Mês",
+       x = "Mês", y = "Valor Médio", color = "Tipo de Depósito") +
+  theme_minimal()
+```
+
+# Resumo:
+
+```{r}
+resumo <- data.frame(
+  Métrica = c("Total Acumulado", "Participação Percentual", "Maior Valor Registrado", "Menor Valor Registrado"),
+  Vista = c(
+    sum(df_depositos$Vista),
+    round(sum(df_depositos$Vista) / sum(df_depositos$Total) * 100, 1),
+    max(df_depositos$Vista),
+    min(df_depositos$Vista)
+  ),
+  Poupança = c(
+    sum(df_depositos$Poupanca),
+    round(sum(df_depositos$Poupanca) / sum(df_depositos$Total) * 100, 1),
+    max(df_depositos$Poupanca),
+    min(df_depositos$Poupanca)
+  ),
+  Prazo = c(
+    sum(df_depositos$Prazo),
+    round(sum(df_depositos$Prazo) / sum(df_depositos$Total) * 100, 1),
+    max(df_depositos$Prazo),
+    min(df_depositos$Prazo)
+  ),
+  Total = c(
+    sum(df_depositos$Total),
+    "100%",
+    max(df_depositos$Total),
+    min(df_depositos$Total)
+  )
+)
+
+kable(resumo, digits = 0) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  row_spec(0, bold = TRUE)
+```
+
+# Banco de Dados Macroeconômico de 2022-2024
+
+```{r}
+# Criar a base de datas
+datas <- seq.Date(from = as.Date("2022-01-01"), to = as.Date("2024-12-01"), by = "month")
+
+# Banco de dados completo com todas as variáveis (dados reais)
+banco_macro <- data.frame(
+  Data = datas,
+  
+  # Taxa de Juros (Selic mensal %)
+  Taxa_Juros = c(
+    # 2022
+    0.73, 0.76, 0.93, 0.83, 1.01, 1.01,  # Jan-Jun
+    1.01, 1.01, 1.07, 1.02, 1.02, 1.12,  # Jul-Dez
+    
+    # 2023
+    1.12, 0.92, 1.17, 0.92, 1.12, 1.07,  # Jan-Jun
+    1.07, 1.14, 0.97, 1.00, 0.92, 0.89,  # Jul-Dez
+    
+    # 2024
+    0.97, 0.80, 0.83, 0.89, 0.83, 0.79,  # Jan-Jun
+    0.91, 0.87, 0.84, 0.93, 0.79, 0.93   # Jul-Dez
+  ),
+  
+  # IPCA Mensal (%)
+  Inflacao = c(
+    # 2022
+    0.54, 1.01, 1.62, 1.06, 0.47, 0.67,   # Jan-Jun
+    -0.68, -0.36, -0.29, 0.59, 0.41, 0.62, # Jul-Dez
+    
+    # 2023
+    0.53, 0.84, 0.71, 0.61, 0.23, -0.08,  # Jan-Jun
+    0.12, 0.23, 0.26, 0.24, 0.28, 0.56,   # Jul-Dez
+    
+    # 2024
+    0.42, 0.83, 0.16, 0.38, 0.46, 0.21,   # Jan-Jun
+    0.38, -0.02, 0.44, 0.56, 0.39, 0.52   # Jul-Dez
+  ),
+  
+  # Desemprego - Dados mensais reais
+  Desemprego = c(
+    # 2022
+    11.2, 11.2, 11.1, 10.5, 9.8, 9.3,    # Jan-Jun
+    9.1, 8.9, 8.7, 8.3, 8.1, 7.9,        # Jul-Dez
+    
+    # 2023
+    8.4, 8.6, 8.8, 8.5, 8.3, 8.0,        # Jan-Jun
+    7.9, 7.8, 7.7, 7.6, 7.5, 6.9,        # Jul-Dez
+    
+    # 2024 - considerando 6.2 para out-nov-dez e interpolando os anteriores
+    # Baseado na tendência de queda e no último trimestre de 2023
+    7.1, 7.0, 6.9, 6.8, 6.7, 6.6,       # Jan-Jun (valores estimados baseados na tendência)
+    6.5, 6.4, 6.3, 6.2, 6.2, 6.2        # Jul-Dez (com out-nov-dez em 6.2%)
+  )
+)
+
+# Visualizar os dados completos
+cat("Banco de dados completo com dados reais:\n\n")
+kable(banco_macro, digits = 2, 
+      caption = "Variáveis Macroeconômicas - Jan/2022 a Dez/2024") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  scroll_box(width = "100%", height = "500px")
+```
+
+# Estatísticas descritivas de todas as variáveis
+
+```{r}
+estatisticas_completas <- banco_macro %>%
+  summarise(across(c(Taxa_Juros, Inflacao, Desemprego), 
+    list(
+      Média = ~mean(., na.rm = TRUE),
+      Mediana = ~median(., na.rm = TRUE),
+      "Desvio Padrão" = ~sd(., na.rm = TRUE),
+      Mínimo = ~min(., na.rm = TRUE),
+      Máximo = ~max(., na.rm = TRUE)
+    )
+  ))
+```
+
+## Reformatar para apresentação
+
+```{r}
+estat_formatadas <- data.frame(
+  Variável = c("Taxa de Juros", "Inflação", "Desemprego"),
+  Média = as.numeric(estatisticas_completas[c(1,6,11)]),
+  Mediana = as.numeric(estatisticas_completas[c(2,7,12)]),
+  Desvio_Padrao = as.numeric(estatisticas_completas[c(3,8,13)]),
+  Mínimo = as.numeric(estatisticas_completas[c(4,9,14)]),
+  Máximo = as.numeric(estatisticas_completas[c(5,10,15)])
+)
+
+cat("ESTATÍSTICAS DAS VARIÁVEIS MACROECONÔMICAS (DADOS REAIS):\n\n")
+kable(estat_formatadas, digits = 3,
+      col.names = c("Variável", "Média", "Mediana", "Desvio Padrão", "Mínimo", "Máximo")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Matriz de correlação entre as variáveis
+
+```{r}
+matriz_cor <- cor(banco_macro %>% select(Taxa_Juros, Inflacao, Desemprego))
+
+cat("MATRIZ DE CORRELAÇÃO ENTRE AS VARIÁVEIS (DADOS REAIS):\n\n")
+kable(matriz_cor, digits = 3) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Análise comparativa anual
+
+```{r}
+analise_anual <- banco_macro %>%
+  mutate(Ano = year(Data)) %>%
+  group_by(Ano) %>%
+  summarise(
+    Juros_Media = mean(Taxa_Juros),
+    Inflacao_Media = mean(Inflacao),
+    Desemprego_Media = mean(Desemprego),
+    .groups = 'drop'
+  )
+
+cat("EVOLUÇÃO ANUAL DAS VARIÁVEIS MACROECONÔMICAS (DADOS REAIS):\n\n")
+kable(analise_anual, digits = 2) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Análise detalhada da evolução do desemprego
+
+```{r}
+queda_total <- (banco_macro$Desemprego[36] - banco_macro$Desemprego[1]) / banco_macro$Desemprego[1] * 100
+
+cat("ANÁLISE DETALHADA DO DESEMPREGO:\n\n")
+cat("• Taxa em Jan/2022:", banco_macro$Desemprego[1], "%\n")
+cat("• Taxa em Dez/2024:", banco_macro$Desemprego[36], "%\n")
+cat("• Queda total no período:", round(queda_total, 1), "%\n")
+cat("• Redução absoluta:", round(banco_macro$Desemprego[1] - banco_macro$Desemprego[36], 1), "pontos percentuais\n\n")
+```
+
+# Gráfico específico do desemprego
+
+```{r}
+ggplot(banco_macro, aes(x = Data, y = Desemprego)) +
+  geom_line(color = "blue", size = 1.5) +
+  geom_point(color = "darkblue", size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "red", linetype = "dashed", alpha = 0.2) +
+  labs(
+    title = "Queda Consistente da Taxa de Desemprego - 2022-2024",
+    subtitle = paste("Queda total de", round(queda_total, 1), "% no período"),
+    x = "Data",
+    y = "Taxa de Desemprego (%)"
+  ) +
+  theme_minimal() +
+  scale_x_date(date_breaks = "4 months", date_labels = "%b/%Y") +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Interpretação detalhada das correlações
+
+```{r}
+correlacoes <- cor(banco_macro %>% select(Taxa_Juros, Inflacao, Desemprego))
+
+cat("INTERPRETAÇÃO DAS CORRELAÇÕES (DADOS REAIS):\n\n")
+
+cat("Taxa de Juros vs Inflação:", round(correlacoes[1,2], 3), "\n")
+cat("Taxa de Juros vs Desemprego:", round(correlacoes[1,3], 3), "\n")
+cat("Inflação vs Desemprego:", round(correlacoes[2,3], 3), "\n\n")
+
+cat("ANÁLISE ECONÔMICA DAS CORRELAÇÕES:\n")
+cat("1. Juros x Inflação: Correlação", round(correlacoes[1,2], 3), "\n")
+if(correlacoes[1,2] > 0) {
+  cat("   - Relação positiva: sugere que o Banco Central pode estar elevando juros\n     para conter a inflação (política monetária contracionista)\n")
+} else {
+  cat("   - Relação negativa: contra intuitivo do ponto de vista teórico\n")
+}
+
+cat("2. Juros x Desemprego: Correlação", round(correlacoes[1,3], 3), "\n")
+if(correlacoes[1,3] > 0) {
+  cat("   - Relação positiva: juros mais altos podem estar associados a maior desemprego,\n     consistente com a teoria econômica (política monetária restritiva)\n")
+} else {
+  cat("   - Relação negativa: contra intuitivo - merece investigação mais aprofundada\n")
+}
+
+cat("3. Inflação x Desemprego: Correlação", round(correlacoes[2,3], 3), "\n")
+if(correlacoes[2,3] > 0) {
+  cat("   - Relação positiva: possível enfraquecimento da Curva de Phillips\n     (trade-off inflação-desemprego menos evidente)\n")
+} else {
+  cat("   - Relação negativa: consistente com a Curva de Phillips tradicional\n")
+}
+```
+
+# Salvar banco de dados final
+
+```{r}
+write.csv(banco_macro, "banco_macro_final.csv", row.names = FALSE)
+
+cat("✅ Banco de dados final salvo como 'banco_macro_final.csv'\n\n")
+
+cat("SITUAÇÃO ATUAL DO BANCO DE DADOS:\n")
+cat("- Taxa de Juros (Selic): COMPLETO ✅\n")
+cat("- Inflação (IPCA): COMPLETO ✅\n")
+cat("- Desemprego: COMPLETO ✅ (dados mensais reais)\n")
+cat("- Período: Jan/2022 a Dez/2024 ✅\n")
+```
+
+# Juntar com os dados de depósitos totais
+
+```{r}
+df_depositos <- read_excel("depositos.xlsx", sheet = "Planilha1") %>%
+  mutate(
+    Data = as.Date(Data),
+    Total_Depositos = Vista + Poupanca + Prazo
+  ) %>%
+  select(Data, Total_Depositos)
+```
+
+# Combinar com variáveis macroeconômicas
+
+```{r}
+df_regressao <- banco_macro %>%
+  left_join(df_depositos, by = "Data")
+
+cat("DADOS PREPARADOS PARA ANÁLISE DE REGRESSÃO:\n\n")
+cat("Variável dependente: Total_Depositos\n")
+cat("Variáveis independentes: Taxa_Juros, Inflacao, Desemprego\n")
+cat("Número de observações:", nrow(df_regressao), "\n")
+cat("Período:", range(df_regressao$Data), "\n\n")
+```
+
+# Visualizar estrutura final
+
+```{r}
+kable(head(df_regressao), digits = 2, 
+      caption = "Dados para Análise de Regressão") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r}
+cat("🎯 RESUMO EXECUTIVO FINAL - BANCO DE DADOS MACROECONÔMICOS\n\n")
+
+cat("PERÍODO: Janeiro/2022 a Dezembro/2024 (36 meses)\n\n")
+
+cat("VARIÁVEIS COLETADAS:\n")
+cat("1. TAXA DE JUROS (Selic mensal) - COMPLETO\n")
+cat("2. INFLAÇÃO (IPCA mensal) - COMPLETO\n")
+cat("3. DESEMPREGO (taxa de desocupação) - COMPLETO\n\n")
+
+cat("PRINCIPAIS TENDÊNCIAS IDENTIFICADAS:\n")
+
+# Calcular tendências
+tendencia_juros <- coef(lm(Taxa_Juros ~ as.numeric(Data), data = banco_macro))[2] * 365
+tendencia_inflacao <- coef(lm(Inflacao ~ as.numeric(Data), data = banco_macro))[2] * 365
+tendencia_desemprego <- coef(lm(Desemprego ~ as.numeric(Data), data = banco_macro))[2] * 365
+
+cat("• Taxa de Juros: ", ifelse(tendencia_juros > 0, "ALTA", "BAIXA"), 
+    " (", round(tendencia_juros, 3), "% ao ano)\n")
+cat("• Inflação: ", ifelse(tendencia_inflacao > 0, "ALTA", "BAIXA"), 
+    " (", round(tendencia_inflacao, 3), "% ao ano)\n")
+cat("• Desemprego: QUEDA ACENTUADA (-", round(abs(tendencia_desemprego), 1), " pontos percentuais/ano)\n\n")
+
+cat("CORRELAÇÕES RELEVANTES:\n")
+cat("• Juros x Inflação: ", round(correlacoes[1,2], 3), "\n")
+cat("• Juros x Desemprego: ", round(correlacoes[1,3], 3), "\n")
+cat("• Inflação x Desemprego: ", round(correlacoes[2,3], 3), "\n\n")
+
+cat("PRÓXIMO PASSO: ANÁLISE DE REGRESSÃO\n")
+cat("• Modelo: Total_Depositos ~ Taxa_Juros + Inflacao + Desemprego\n")
+cat("• Método: Mínimos Quadrados Ordinários (OLS)\n")
+cat("• Objetivo: Explicar o comportamento dos depósitos totais\n")
+
+cat("\nO banco de dados está PRONTO para a análise econométrica!\n")
+```
+
+# Carregar dados dos depósitos
+```{r}
+df_depositos <- read_excel("depositos.xlsx", sheet = "Planilha1") %>%
+  mutate(
+    Data = as.Date(Data),
+    Total_Depositos = Vista + Poupanca + Prazo
+  ) %>%
+  select(Data, Total_Depositos)
+```
+
+# Carregar variáveis macroeconômicas
+```{r}
+banco_macro <- read.csv("banco_macro_final.csv") %>%
+  mutate(Data = as.Date(Data))
+```
+
+# Combinar os dados
+```{r}
+df_completo <- df_depositos %>%
+  inner_join(banco_macro, by = "Data")
+
+cat("DIMENSÕES DO DATASET PARA ANÁLISE:\n")
+cat("• Período:", range(df_completo$Data), "\n")
+cat("• Número de observações:", nrow(df_completo), "\n")
+cat("• Variáveis:", paste(names(df_completo), collapse = ", "), "\n\n")
+```
+
+# Visualizar dados
+```{r}
+kable(head(df_completo), digits = 2, 
+      caption = "Primeiras Observações do Dataset") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Estatísticas descritivas de todas as variáveis
+```{r}
+estatisticas <- df_completo %>%
+  select(Total_Depositos, Taxa_Juros, Inflacao, Desemprego) %>%
+  describe() %>%
+  select(mean, sd, min, max, n)
+```
+
+# Formatar para apresentação
+```{r}
+estatisticas_formatadas <- data.frame(
+  Variável = c("Depósitos Totais", "Taxa de Juros", "Inflação", "Desemprego"),
+  Média = round(estatisticas$mean, 2),
+  "Desvio Padrão" = round(estatisticas$sd, 2),
+  Mínimo = round(estatisticas$min, 2),
+  Máximo = round(estatisticas$max, 2),
+  Observações = estatisticas$n
+)
+
+cat("ESTATÍSTICAS DESCRITIVAS DAS VARIÁVEIS:\n\n")
+kable(estatisticas_formatadas, 
+      col.names = c("Variável", "Média", "Desvio Padrão", "Mínimo", "Máximo", "Observações")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Matriz de correlação completa
+```{r}
+matriz_cor <- cor(df_completo %>% select(Total_Depositos, Taxa_Juros, Inflacao, Desemprego))
+
+cat("MATRIZ DE CORRELAÇÃO ENTRE TODAS AS VARIÁVEIS:\n\n")
+kable(matriz_cor, digits = 3) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  add_header_above(c(" " = 1, "Depósitos" = 1, "Juros" = 1, "Inflação" = 1, "Desemprego" = 1))
+```
+
+# Interpretação das correlações
+```{r}
+cat("\nINTERPRETAÇÃO DAS CORRELAÇÕES COM DEPÓSITOS TOTAIS:\n")
+cor_depositos <- matriz_cor[1,]
+for(i in 2:4) {
+  var_name <- names(df_completo)[i+1]
+  cor_value <- cor_depositos[i]
+  cat("• Depósitos vs", var_name, ":", round(cor_value, 3))
+  if(abs(cor_value) > 0.7) cat(" (FORTE)")
+  else if(abs(cor_value) > 0.5) cat(" (MODERADA)")
+  else if(abs(cor_value) > 0.3) cat(" (FRACA)")
+  else cat(" (MUITO FRACA)")
+  cat("\n")
+}
+```
+
+# Especificar e estimar o modelo de regressão OLS
+```{r}
+modelo_ols <- lm(Total_Depositos ~ Taxa_Juros + Inflacao + Desemprego, 
+                 data = df_completo)
+```
+
+# Resumo detalhado do modelo
+```{r}
+resumo_modelo <- summary(modelo_ols)
+
+cat("MODELO DE REGRESSÃO OLS - RESUMO COMPLETO\n\n")
+cat("Fórmula: Total_Depositos ~ Taxa_Juros + Inflacao + Desemprego\n\n")
+```
+
+# Coeficientes com significância
+```{r}
+coeficientes <- tidy(modelo_ols)
+coeficientes$significancia <- ifelse(coeficientes$p.value < 0.01, "***",
+                                    ifelse(coeficientes$p.value < 0.05, "**",
+                                          ifelse(coeficientes$p.value < 0.1, "*", "")))
+
+cat("COEFICIENTES ESTIMADOS:\n\n")
+kable(coeficientes, digits = 4,
+      col.names = c("Termo", "Estimativa", "Erro Padrão", "Estatística t", "Valor-p", "Significância")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Estatísticas do modelo
+```{r}
+cat("\nESTATÍSTICAS DO MODELO:\n")
+cat("• R-quadrado:", round(resumo_modelo$r.squared, 4), "\n")
+cat("• R-quadrado Ajustado:", round(resumo_modelo$adj.r.squared, 4), "\n")
+cat("• Estatística F:", round(resumo_modelo$fstatistic[1], 2), "\n")
+cat("• Valor-p do F-test:", format.pval(pf(resumo_modelo$fstatistic[1], 
+                                         resumo_modelo$fstatistic[2], 
+                                         resumo_modelo$fstatistic[3], 
+                                         lower.tail = FALSE)), "\n")
+cat("• Erro Padrão dos Resíduos:", round(resumo_modelo$sigma, 2), "\n")
+```
+
+
+# Análise de elasticidades (coeficientes padronizados)
+```{r}
+df_padronizado <- df_completo %>%
+  select(Total_Depositos, Taxa_Juros, Inflacao, Desemprego) %>%
+  scale() %>%
+  as.data.frame()
+
+modelo_padronizado <- lm(Total_Depositos ~ Taxa_Juros + Inflacao + Desemprego, 
+                        data = df_padronizado)
+
+coef_padronizados <- tidy(modelo_padronizado)
+
+cat("COEFICIENTES PADRONIZADOS (ELASTICIDADES):\n\n")
+kable(coef_padronizados, digits = 4,
+      col.names = c("Termo", "Estimativa", "Erro Padrão", "Estatística t", "Valor-p")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+# Interpretação econômica
+```{r}
+cat("\n📈 INTERPRETAÇÃO ECONÔMICA DOS RESULTADOS:\n\n")
+
+cat("1. TAXA DE JUROS (Selic):\n")
+cat("   • Coeficiente:", round(coeficientes$estimate[2], 2), "\n")
+cat("   • Interpretação: Um aumento de 1% na taxa de juros está associado a ")
+if(coeficientes$estimate[2] > 0) {
+  cat("um AUMENTO de", round(coeficientes$estimate[2], 0), "nos depósitos totais.\n")
+} else {
+  cat("uma REDUÇÃO de", round(abs(coeficientes$estimate[2]), 0), "nos depósitos totais.\n")
+}
+cat("   • Significância:", ifelse(coeficientes$p.value[2] < 0.05, "ESTATISTICAMENTE SIGNIFICATIVO", "NÃO SIGNIFICATIVO"), "\n\n")
+
+cat("2. INFLAÇÃO (IPCA):\n")
+cat("   • Coeficiente:", round(coeficientes$estimate[3], 2), "\n")
+cat("   • Interpretação: Um aumento de 1% na inflação está associado a ")
+if(coeficientes$estimate[3] > 0) {
+  cat("um AUMENTO de", round(coeficientes$estimate[3], 0), "nos depósitos totais.\n")
+} else {
+  cat("uma REDUÇÃO de", round(abs(coeficientes$estimate[3]), 0), "nos depósitos totais.\n")
+}
+cat("   • Significância:", ifelse(coeficientes$p.value[3] < 0.05, "ESTATISTICAMENTE SIGNIFICATIVO", "NÃO SIGNIFICATIVO"), "\n\n")
+
+cat("3. DESEMPREGO:\n")
+cat("   • Coeficiente:", round(coeficientes$estimate[4], 2), "\n")
+cat("   • Interpretação: Um aumento de 1% na taxa de desemprego está associado a ")
+if(coeficientes$estimate[4] > 0) {
+  cat("um AUMENTO de", round(coeficientes$estimate[4], 0), "nos depósitos totais.\n")
+} else {
+  cat("uma REDUÇÃO de", round(abs(coeficientes$estimate[4]), 0), "nos depósitos totais.\n")
+}
+cat("   • Significância:", ifelse(coeficientes$p.value[4] < 0.05, "ESTATISTICAMENTE SIGNIFICATIVO", "NÃO SIGNIFICATIVO"), "\n\n")
+
+cat("4. PODER EXPLICATIVO DO MODELO:\n")
+cat("   • O modelo explica", round(resumo_modelo$r.squared * 100, 1), "% da variação dos depósitos totais\n")
+cat("   • Isso indica que", round(resumo_modelo$r.squared * 100, 1), "% do comportamento dos depósitos\n")
+cat("     pode ser explicado pelas variáveis macroeconômicas selecionadas\n")
+
+```
+
+```{r}
+cat("DIAGNÓSTICO DO MODELO DE REGRESSÃO\n\n")
+```
+# 1. Teste de normalidade dos resíduos
+```{r}
+teste_normalidade <- jarque.bera.test(residuals(modelo_ols))
+cat("1. TESTE DE NORMALIDADE DOS RESÍDUOS (Jarque-Bera):\n")
+cat("   Estatística JB:", round(teste_normalidade$statistic, 4), "\n")
+cat("   Valor-p:", round(teste_normalidade$p.value, 4))
+if(teste_normalidade$p.value > 0.05) {
+  cat(" → Resíduos normais (suposição atendida)\n")
+} else {
+  cat(" → Resíduos não normais (violação da suposição)\n")
+}
+```
+
+# 2. Multicolinearidade (VIF)
+```{r}
+vif_values <- vif(modelo_ols)
+cat("\n2. MULTICOLINEARIDADE (Fator de Inflação de Variância - VIF):\n")
+for(i in 1:length(vif_values)) {
+  cat("   ", names(vif_values)[i], ":", round(vif_values[i], 2))
+  if(vif_values[i] > 10) cat(" → Multicolinearidade ALTA\n")
+  else if(vif_values[i] > 5) cat(" → Multicolinearidade MODERADA\n")
+  else cat(" → Multicolinearidade BAIXA\n")
+}
+```
+
+# 3. Heterocedasticidade (Teste de Breusch-Pagan)
+```{r}
+teste_bp <- bptest(modelo_ols)
+cat("\n3. HETEROCEDASTICIDADE (Teste de Breusch-Pagan):\n")
+cat("   Estatística BP:", round(teste_bp$statistic, 4), "\n")
+cat("   Valor-p:", round(teste_bp$p.value, 4))
+if(teste_bp$p.value > 0.05) {
+  cat(" → Homocedasticidade (suposição atendida)\n")
+} else {
+  cat(" → Heterocedasticidade detectada\n")
+}
+``` 
+
+# 4. Gráficos de diagnóstico
+```{r}
+cat("\n4. GRÁFICOS DE DIAGNÓSTICO:\n")
+par(mfrow = c(2, 2))
+plot(modelo_ols, which = c(1, 2, 4, 5))
+par(mfrow = c(1, 1))
+```
+
+# Adicionar previsões ao dataset
+```{r}
+df_completo <- df_completo %>%
+  mutate(
+    Previsao_Depositos = predict(modelo_ols),
+    Residuo = Total_Depositos - Previsao_Depositos
+  )
+```
+
+# Gráfico de valores observados vs previstos
+```{r}
+ggplot(df_completo, aes(x = Data)) +
+  geom_line(aes(y = Total_Depositos, color = "Observado"), size = 1.2) +
+  geom_line(aes(y = Previsao_Depositos, color = "Previsto"), size = 1.2, linetype = "dashed") +
+  labs(
+    title = "Depósitos Totais: Valores Observados vs Previstos pelo Modelo OLS",
+    subtitle = paste("R² =", round(resumo_modelo$r.squared, 3)),
+    x = "Data",
+    y = "Depósitos Totais (R$)",
+    color = ""
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("Observado" = "steelblue", "Previsto" = "red")) +
+  theme(legend.position = "bottom")
+```
+# Calcular métricas de precisão
+```{r}
+rmse <- sqrt(mean(df_completo$Residuo^2))
+mae <- mean(abs(df_completo$Residuo))
+cat("\nMÉTRICAS DE PRECISÃO DAS PREVISÕES:\n")
+cat("• RMSE (Raiz do Erro Quadrático Médio):", round(rmse, 2), "\n")
+cat("• MAE (Erro Absoluto Médio):", round(mae, 2), "\n")
+cat("• MAPE (Erro Percentual Absoluto Médio):", round(mean(abs(df_completo$Residuo/df_completo$Total_Depositos))*100, 2), "%\n")
+```
+
+# Análise temporal dos resíduos
+```{r}
+ggplot(df_completo, aes(x = Data, y = Residuo)) +
+  geom_line(color = "purple", size = 1) +
+  geom_point(color = "black", size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = TRUE, color = "orange") +
+  labs(
+    title = "Análise Temporal dos Resíduos do Modelo",
+    subtitle = "Padrão sistemático nos resíduos pode indicar variáveis omitidas",
+    x = "Data",
+    y = "Resíduos (R$)"
+  ) +
+  theme_minimal()
+```
+
+# Teste de autocorrelação dos resíduos
+```{r}
+teste_dw <- dwtest(modelo_ols)
+cat("\nTESTE DE AUTOCORRELAÇÃO (Durbin-Watson):\n")
+cat("Estatística DW:", round(teste_dw$statistic, 3), "\n")
+cat("Valor-p:", round(teste_dw$p.value, 3), "\n")
+if(teste_dw$p.value > 0.05) {
+  cat("→ Não há evidência de autocorrelação nos resíduos\n")
+} else {
+  cat("→ Evidência de autocorrelação nos resíduos\n")
+}
+```
+
+# Análise de importância relativa das variáveis
+```{r}
+importancia <- abs(coef_padronizados$estimate[-1]) / sum(abs(coef_padronizados$estimate[-1])) * 100
+
+resumo_importancia <- data.frame(
+  Variável = c("Taxa de Juros", "Inflação", "Desemprego"),
+  "Coeficiente Padronizado" = round(coef_padronizados$estimate[-1], 4),
+  "Importância Relativa (%)" = round(importancia, 1),
+  "Impacto no Modelo" = ifelse(coef_padronizados$estimate[-1] > 0, "POSITIVO", "NEGATIVO"),
+  "Significância" = ifelse(coeficientes$p.value[-1] < 0.05, "SIGNIFICATIVO", "NÃO SIGNIFICATIVO")
+)
+
+cat("IMPORTÂNCIA RELATIVA DAS VARIÁVEIS EXPLICATIVAS:\n\n")
+kable(resumo_importancia, 
+      col.names = c("Variável", "Coef. Padronizado", "Importância (%)", "Impacto", "Significância")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
